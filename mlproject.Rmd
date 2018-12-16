@@ -1,0 +1,130 @@
+---
+title: "Coursera Practical Machine Learning - Course Project"
+author: "lz"
+date: "December 16, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+### Overview
+
+In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the the manner in which they did the exercise. 
+The participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate.
+More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+We use several machine learning algorithms to train the prediction models and select the model having the best performance on prediction accuracy. Then it will apply to predict 20 different test cases for this project's quiz.   
+
+### Data Preprocess
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data for quiz are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The 2 datasets above have been downloaded to the local disk.
+```{r}
+# load data from local disk
+training <- read.csv("f:/pml-training.csv", na.strings = c('NA', ''), stringsAsFactors = FALSE)
+testing <- read.csv("f:/pml-testing.csv", na.strings = c('NA', ''), stringsAsFactors = FALSE)
+training$classe <- as.factor(training$classe)
+dim(training); dim(testing)
+```
+
+We notice that the raw training dataset has 100 columns containing many NA values. Each of these columns has 19216 NA values, which means the percentage of NA is 97.9%. 
+```{r}
+# calculate how many NA values in each columns
+train.NA <- sapply(training, function(x) sum(is.na(x)))
+table(train.NA)
+```
+
+Therefore, these columns will be removed since they can not provide too much information to train the prediction models.
+The first 7 columns are about participants, timestamps, and window numbers, which are not helpful for our goal. So they will be removed as well. 
+```{r}
+# remove columns
+training <- training[train.NA==0]
+training <- training[-c(1:7)]
+```
+
+Partitioning the training dataset into two for model training named "train1" and testing named "test1".
+```{r, message=FALSE}
+# data partition
+library(caret)
+set.seed(335)
+train.idx <- createDataPartition(training$classe, times = 1, p = 0.75, list = FALSE)
+train1 <- training[train.idx, ]
+test1 <- training[-train.idx, ]
+dim(train1); dim(test1)
+```
+
+### Data exploration
+We create a correlation plot to investigate if there are strong correlations between columns. The plot suggests that a few pairs of columns from the same sensors exist relatively strong correlations. In this case, we will try to provide a model as accurate as possible. Therefore, we will not consider removing those columns, since there are not too many correlations between columns and more information will be helpful to provide an accurate model.
+```{r, message=FALSE, fig.height=7, fig.width=7}
+# correlation plot
+library(corrplot)
+corrplot(cor(train1[-53]), method = 'color', tl.cex = 0.8 )
+```
+
+### Model Building
+In this section, we will use the "train1" dataset to apply 3 machine learning algorithms:
+
+- random forest
+- k-nearest neighbors
+- support vector machine  
+
+Then the models will be applied to the "test1" dataset to evaluate the performance on accuracy. We will use the best performance model to predict the test quiz cases.
+
+In order to avoid overfitting, we use **3-fold cross validation** for each algorithm.
+
+#### Random Forest
+```{r}
+# random forest model and run on test1 dataset
+mdl.rf <- train(classe~., data = train1, method = 'rf',  ntree = 21, verbose = FALSE, 
+                trControl = trainControl(method = 'cv', number = 3))
+mdl.rf
+confusionMatrix(predict(mdl.rf, test1), test1$classe)
+```
+According to the result above, the random forest model has an accuracy of 99.06%. The out of sample error is 1-99.06% = 0.94%.
+
+#### k-Nearest Neighbors
+The knn and SVM algorithms both require normalized dataset for training. 
+```{r}
+# data normalization
+train1.norm <- as.data.frame(scale(train1[-53])) 
+test1.norm <- as.data.frame(scale(test1[-53]))
+```
+
+```{r}
+# train knn model and run on test1.norm dataset
+mdl.knn <- train(train1.norm, train1$classe, method = 'knn', 
+                 trControl = trainControl(method = 'cv', number = 3),
+                 tuneGrid = expand.grid(k = c(3, 7, 11))) 
+mdl.knn
+confusionMatrix(predict(mdl.knn, test1.norm), test1$classe)
+```
+According to the result above, the knn model has an accuracy of 97.98%. The out of sample error is 1-97.98% = 2.02%.
+
+#### Support Vector Machine
+```{r}
+mdl.svm <- train(train1.norm, train1$classe, method = 'svmLinear', 
+                  trControl = trainControl(method = 'cv', number = 3),
+                  tuneGrid = expand.grid(C = c(1, 5, 10)))
+mdl.svm
+confusionMatrix(predict(mdl.svm, test1.norm), test1$classe)
+```
+According to the result above, the SVM model has an accuracy of 76.18%. The out of sample error is 1-76.18% = 23.82%.
+
+### Prediction for the "testing" dataset
+
+The results suggest that the random forest model has the best performance on accuracy. Therefore, it will be applied to provide prediction on the "testing" dataset. The prediction is following.
+```{r}
+# apply rf model
+testing$pred <- predict(mdl.rf, testing)
+testing[c('pred','problem_id')]
+```
+
+
+
+
